@@ -1,0 +1,16 @@
+{
+  "name": "exercise3",
+  "version": "1.0.0",
+  "description": "kaplat exc 3 http server",
+  "main": "BookStoreServer.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "nadir",
+  "license": "ISC",
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "express": "^4.19.2",
+    "winston": "^3.13.0"
+  }
+}
