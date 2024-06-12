@@ -5,7 +5,7 @@ app.use(express.json());
 
 const requestLogger = winston.createLogger({
     name: 'request-logger',
-    level: 'info',
+    level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp({
             format: 'DD-MM-YYYY HH:mm:ss.SSS'
@@ -25,6 +25,20 @@ const logRequest = (message) => {
     requestLogger.info(message, { requestID });
     return timestamp;
 };
+
+const booksLogger = winston.createLogger({
+    name: 'books-logger',
+    level: 'debug',
+    format: winston.format.combine(
+        winston.format.timestamp({
+            format: 'DD-MM-YYYY HH:mm:ss.SSS'
+        }),
+        winston.format.printf(({ timestamp, level, message, requestID  }) => {
+            return `${timestamp} ${level.toUpperCase()}: ${message} | request #${requestID}`;
+        })
+    ),
+    transports: [ new winston.transports.File({ filename: 'books.log' })],
+});
 
 let responseBody = {}
 
@@ -91,8 +105,7 @@ function filterBooks(req){
         let genres = req.query.genres;
 
         if(genres.toUpperCase() != genres){
-            responseBody.errorMessage = 'Error: Invalid Genres'
-            return res.status(400).json(responseBody);
+            return false;
         }
 
         filteredBooks = filteredBooks.filter((book) => {
@@ -128,7 +141,6 @@ function binarySearch(array, target) {
     return NOT_FOUND;
 }
 
-
 app.delete('/book', (req, res) => {
     entryTimestamp = logRequest(`Incoming request | #${++requestID} | resource: /book | HTTP Verb DELETE`);
     const id = Number(req.query.id);
@@ -139,12 +151,15 @@ app.delete('/book', (req, res) => {
 
     bookToDeleteIndex = binarySearch(books, id);
     if(bookToDeleteIndex !== NOT_FOUND){
+        booksLogger.info(`Removing book [${books[bookToDeleteIndex].title}]`, {requestID: requestID});
+        booksLogger.debug(`After removing book [${books[bookToDeleteIndex].title}] id: [${id}] there are ${numOfBooks - 1} books in the system`, {requestID: requestID});
         books.splice(bookToDeleteIndex, 1);
         responseBody.result = --numOfBooks;
         res.status(200).json(responseBody);
     }
     else{
         responseBody.errorMessage = `Error: no such Book with id ${id}`;
+        booksLogger.error(responseBody.errorMessage, {requestID: requestID});
         res.status(404).json(responseBody); 
     }
 
@@ -170,11 +185,16 @@ app.put('/book', (req, res) => {
         res.status(409).json(responseBody);
     }
     else{
+        booksLogger.info(`Update Book id [${bookToFind.id}] price to ${price}`, {requestID: requestID});
+        booksLogger.debug(`Book [${bookToFind.title}] price change: ${bookToFind.price} --> ${price}`, {requestID: requestID});
         responseBody.result = Number(bookToFind.price);
         books[id - 1].price = price;
         res.status(200).json(responseBody);
     }
 
+    if(responseBody.errorMessage != undefined){
+        booksLogger.error(responseBody.errorMessage, {requestID: requestID});
+    }
     requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
 });
 
@@ -188,12 +208,14 @@ app.get('/book', (req, res) => {
     responseBody.result = undefined;
 
     if(bookToFind != undefined){
+        booksLogger.debug(`Fetching book id ${bookToFind.id} details`, {requestID: requestID});
         responseBody.result = bookToFind;
         res.status(200).json(responseBody);
     }
     else{
         responseBody.errorMessage = `Error: no such Book with id ${id}`;
         res.status(404).json(responseBody); 
+        booksLogger.error(responseBody.errorMessage, {requestID: requestID});
     }
 
     requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
@@ -207,12 +229,18 @@ app.get('/books', (req, res) => {
     responseBody.result = undefined;
 
     filteredBooks = filterBooks(req);
+    if(filteredBooks == false){
+        responseBody.errorMessage = `Error: invalid genres`;
+        requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
+        return res.status(400).json(responseBody);
+    }
 
+    booksLogger.info(`Total Books found for requested filters is ${filteredBooks.length}`, {requestID: requestID});
     responseBody.result = filteredBooks.sort((first, second) => 
         first.title.toLowerCase().localeCompare(second.title.toLowerCase()));
 
-    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
     res.status(200).json(responseBody);
+    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
 });
 
 app.get('/books/total', (req, res) => {
@@ -223,11 +251,17 @@ app.get('/books/total', (req, res) => {
     responseBody.result = undefined;
 
     filteredBooks = filterBooks(req);
+    if(filteredBooks == false){
+        responseBody.errorMessage = `Error: invalid genres`;
+        requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
+        return res.status(400).json(responseBody);
+    }
 
     responseBody.result = filteredBooks.length;
+    booksLogger.info(`Total Books found for requested filters is ${responseBody.result}`, {requestID: requestID})
 
-    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
     res.status(200).json(responseBody);
+    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
 });
 
 app.post('/book', (req, res) => {
@@ -247,6 +281,8 @@ app.post('/book', (req, res) => {
         responseBody.errorMessage = `Error: Can’t create new Book with negative price`;
     }
     else{
+        booksLogger.info(`Creating new Book with Title [${book.title}]`, {requestID: requestID});
+        booksLogger.debug(`Currently there are ${numOfBooks} Books in the system. New Book will be assigned with id ${nextID}`, {requestID: requestID});
         book.id = nextID; 
         book = JSON.parse(JSON.stringify(book, ["id", "title", "author", "price", "year", "genres"], 4));
         books.push(book);
@@ -257,6 +293,7 @@ app.post('/book', (req, res) => {
         return res.status(200).json(responseBody);
     }
 
+    booksLogger.error(responseBody.errorMessage, {requestID: requestID});
     requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
     return res.status(409).json(responseBody);
 });
