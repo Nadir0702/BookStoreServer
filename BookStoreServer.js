@@ -4,8 +4,7 @@ const app = express();
 app.use(express.json());
 
 const requestLogger = winston.createLogger({
-    name: 'request-logger',
-    level: 'debug',
+    level: 'info',
     format: winston.format.combine(
         winston.format.timestamp({
             format: 'DD-MM-YYYY HH:mm:ss.SSS'
@@ -27,8 +26,7 @@ const logRequest = (message) => {
 };
 
 const booksLogger = winston.createLogger({
-    name: 'books-logger',
-    level: 'debug',
+    level: 'info',
     format: winston.format.combine(
         winston.format.timestamp({
             format: 'DD-MM-YYYY HH:mm:ss.SSS'
@@ -43,6 +41,7 @@ const booksLogger = winston.createLogger({
 let responseBody = {}
 
 const genres = ["SCI_FI", "NOVEL", "HISTORY", "MANGA", "ROMANCE", "PROFESSIONAL"];
+const levels = "DEBUG,INFO,ERROR";
 const NOT_FOUND = -1;
 const MIN_YEAR = 1940;
 const MAX_YEAR = 2100;
@@ -140,6 +139,61 @@ function binarySearch(array, target) {
 
     return NOT_FOUND;
 }
+
+app.put('/logs/level', (req, res) => {
+    entryTimestamp = logRequest(`Incoming request | #${++requestID} | resource: /logs/level | HTTP Verb PUT`);
+    let loggerLevel;
+
+    if(levels.includes(req.query["logger-level"])){
+        if(req.query["logger-name"] === "request-logger"){
+            requestLogger.level = req.query["logger-level"].toLowerCase();
+            loggerLevel = requestLogger.level.toUpperCase();
+        }
+        else if(req.query["logger-name"] === "books-logger"){
+            booksLogger.level = req.query["logger-level"].toLowerCase();
+            loggerLevel = booksLogger.level.toUpperCase();
+        }
+        else{
+            loggerLevel = `Error: No logger found with the name [${req.query["logger-name"]}]`; 
+        }
+    }
+    else{
+        loggerLevel = `Error: [${req.query["logger-level"]}] level does not exist`; 
+    }
+
+    if(loggerLevel.length > 5){
+        res.status(400).send(loggerLevel);
+    }
+    else{
+        res.status(200).send(loggerLevel);
+    }
+
+    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
+});
+
+app.get('/logs/level', (req, res) => {
+    entryTimestamp = logRequest(`Incoming request | #${++requestID} | resource: /logs/level | HTTP Verb GET`);
+    let loggerLevel;
+
+    if(req.query["logger-name"] === "request-logger"){
+        loggerLevel = requestLogger.level.toUpperCase();
+    }
+    else if(req.query["logger-name"] === "books-logger"){
+        loggerLevel = booksLogger.level.toUpperCase();
+    }
+    else{
+        loggerLevel = `Error: No logger found with the name [${req.query["logger-name"]}]`; 
+    }
+
+    if(loggerLevel.length > 5){
+        res.status(400).send(loggerLevel);
+    }
+    else{
+        res.status(200).send(loggerLevel);
+    }
+    
+    requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
+});
 
 app.delete('/book', (req, res) => {
     entryTimestamp = logRequest(`Incoming request | #${++requestID} | resource: /book | HTTP Verb DELETE`);
@@ -251,7 +305,7 @@ app.get('/books/total', (req, res) => {
     responseBody.result = undefined;
 
     filteredBooks = filterBooks(req);
-    if(filteredBooks == false){
+    if(filteredBooks === false){
         responseBody.errorMessage = `Error: invalid genres`;
         requestLogger.debug(`request #${requestID} duration: ${Date.now() - entryTimestamp}ms`, {requestID: requestID});
         return res.status(400).json(responseBody);
